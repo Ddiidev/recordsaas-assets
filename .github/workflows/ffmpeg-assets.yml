@@ -1,0 +1,79 @@
+name: FFmpeg assets
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: GitHub release tag to test
+        required: true
+        default: 2.0.2
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.asset }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            asset: ffmpeg
+            executable: ./ffmpeg
+          - os: windows-2025
+            asset: ffmpeg.exe
+            executable: .\ffmpeg.exe
+          - os: macos-15-intel
+            asset: ffmpeg-darwin-x64
+            executable: ./ffmpeg-darwin-x64
+          - os: macos-15
+            asset: ffmpeg-darwin-arm64
+            executable: ./ffmpeg-darwin-arm64
+
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          tag="${{ github.event.inputs.release_tag }}"
+          if [ -z "$tag" ]; then
+            tag="${{ github.event.release.tag_name }}"
+          fi
+          if [ -z "$tag" ]; then
+            tag="2.0.2"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Download release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh release download "${{ steps.release.outputs.tag }}" --repo "${{ github.repository }}" --pattern "${{ matrix.asset }}" --output "${{ matrix.asset }}"
+
+      - name: Allow execution
+        if: runner.os != 'Windows'
+        shell: bash
+        run: chmod +x "${{ matrix.asset }}"
+
+      - name: Print version
+        shell: pwsh
+        run: |
+          & "${{ matrix.executable }}" -hide_banner -version
+
+      - name: Generate a RecordSaaS smoke video
+        shell: pwsh
+        run: |
+          & "${{ matrix.executable }}" -hide_banner -f lavfi -i testsrc=size=160x90:rate=10 -t 1 -pix_fmt yuv420p -y smoke.mp4
+          if (!(Test-Path smoke.mp4)) {
+            throw "smoke.mp4 was not created"
+          }
+
+      - name: Decode smoke video
+        shell: pwsh
+        run: |
+          & "${{ matrix.executable }}" -hide_banner -i smoke.mp4 -f null -
