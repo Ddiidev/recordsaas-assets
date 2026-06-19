@@ -25,15 +25,23 @@ jobs:
           - os: ubuntu-24.04
             asset: ffmpeg
             executable: ./ffmpeg
+            required_encoders: libx264,h264_nvenc,h264_vaapi,h264_qsv
+            required_filters: ''
           - os: windows-2025
             asset: ffmpeg.exe
             executable: .\ffmpeg.exe
+            required_encoders: libx264,h264_nvenc,h264_amf,h264_qsv
+            required_filters: gfxcapture
           - os: macos-15-intel
             asset: ffmpeg-darwin-x64
             executable: ./ffmpeg-darwin-x64
+            required_encoders: libx264,h264_videotoolbox
+            required_filters: ''
           - os: macos-15
             asset: ffmpeg-darwin-arm64
             executable: ./ffmpeg-darwin-arm64
+            required_encoders: libx264,h264_videotoolbox
+            required_filters: ''
 
     steps:
       - name: Resolve release tag
@@ -64,6 +72,29 @@ jobs:
         shell: pwsh
         run: |
           & "${{ matrix.executable }}" -hide_banner -version
+
+      - name: Verify required screen encoders
+        shell: pwsh
+        run: |
+          $encoderOutput = (& "${{ matrix.executable }}" -hide_banner -encoders 2>&1) -join "`n"
+          foreach ($encoder in "${{ matrix.required_encoders }}".Split(',')) {
+            $escapedEncoder = [Regex]::Escape($encoder)
+            if ($encoderOutput -notmatch "(?m)^\s*V\S*\s+$escapedEncoder\s") {
+              throw "FFmpeg asset '${{ matrix.asset }}' does not provide required encoder '$encoder'."
+            }
+          }
+
+      - name: Verify required screen capture filters
+        if: matrix.required_filters != ''
+        shell: pwsh
+        run: |
+          $filterOutput = (& "${{ matrix.executable }}" -hide_banner -filters 2>&1) -join "`n"
+          foreach ($filter in "${{ matrix.required_filters }}".Split(',')) {
+            $escapedFilter = [Regex]::Escape($filter)
+            if ($filterOutput -notmatch "(?m)^\s*\S+\s+$escapedFilter\s") {
+              throw "FFmpeg asset '${{ matrix.asset }}' does not provide required filter '$filter'."
+            }
+          }
 
       - name: Generate a RecordSaaS smoke video
         shell: pwsh
